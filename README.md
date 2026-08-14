@@ -1,106 +1,117 @@
-# agent-console-api
+# Multi-Agent Research Assistant
+### LangGraph + Claude (Anthropic)
 
-A streaming agent runtime in Node/TypeScript. Agents plan, call tools, and
-report progress over Server-Sent Events, so a client can render what the agent
-is doing *while* it does it — plan, per-step tool calls with their arguments,
-failed attempts and retries, streamed narration, and the final answer.
+A production-style multi-agent system that researches any topic using
+a **Supervisor → Researcher → Critic → Summarizer** pipeline with real-time
+web search, iterative critique loops, and a final structured report.
 
-Phase 1 (this repo, current state) is the runtime and transport with a scripted
-planner in place of an LLM. That is deliberate: the orchestration and the wire
-contract are the hard parts, and they are far easier to build and test when the
-event stream is deterministic and costs nothing to run.
+---
 
-## Running it
+## Architecture
 
-```bash
-npm install
-npm run dev            # http://localhost:4000
+```
+START
+  │
+  ▼
+Supervisor ──────────────────────────────┐
+  │                                       │ (loop back after each agent)
+  ├──[research]──► Researcher             │
+  │                (web search, gather)   │
+  │                     └────────────────►┘
+  │
+  ├──[critique]──► Critic                 │
+  │                (evaluate quality)     │
+  │                     └────────────────►┘
+  │
+  └──[summarize]─► Summarizer
+                   (final report)
+                        │
+                        ▼
+                       END
 ```
 
-```bash
-# start a run
-curl -X POST localhost:4000/api/runs \
-  -H 'Content-Type: application/json' \
-  -H 'Idempotency-Key: my-key-1' \
-  -d '{"goal":"compare two vendors on price"}'
-
-# watch it
-curl -N localhost:4000/api/runs/<id>/events
-
-# resume after a dropped connection
-curl -N -H 'Last-Event-ID: 42' localhost:4000/api/runs/<id>/events
-
-# stop it
-curl -X POST localhost:4000/api/runs/<id>/cancel
+**Shared State** (immutable TypedDict, merged by LangGraph reducers):
+```python
+{
+  "topic":      str,        # research question
+  "findings":   list[str],  # accumulated (operator.add reducer)
+  "critique":   str,        # latest critic feedback
+  "report":     str,        # final output
+  "next_agent": str,        # supervisor's routing decision
+  "iterations": int,        # loop counter (guards against infinite loops)
+}
 ```
 
-## API
+---
 
-| Method | Path | Notes |
-| --- | --- | --- |
-| `POST` | `/api/runs` | `202` with the run. Honours `Idempotency-Key`; a repeat returns `200` with the original run and `idempotentReplay: true`. |
-| `GET` | `/api/runs` | All runs, newest first. |
-| `GET` | `/api/runs/:id` | One run. |
-| `GET` | `/api/runs/:id/events` | SSE. Accepts `Last-Event-ID` (or `?lastEventId=`). |
-| `POST` | `/api/runs/:id/cancel` | `202` accepted; `409` if already terminal. |
-| `GET` | `/health` | Liveness. |
+## Project Structure
 
-## Design decisions
+```
+research_assistant/
+├── main.py                     # Entry point + streaming console output
+├── requirements.txt
+├── agents/
+│   ├── supervisor.py           # Routes to next agent
+│   ├── researcher.py           # Web search via Claude tool use
+│   ├── critic.py               # Evaluates & scores research
+│   └── summarizer.py           # Produces final markdown report
+├── graphs/
+│   └── research_graph.py       # StateGraph definition + compilation
+└── utils/
+    ├── state.py                # ResearchState TypedDict
+    └── llm.py                  # Centralized Anthropic client
+```
 
-**Every event carries a monotonic `seq`, emitted as the SSE `id:` field.**
-That single choice buys three features at once. A client that drops mid-run
-reconnects with `Last-Event-ID` and gets an exact replay of what it missed.
-Viewing a finished run is the same code path with nothing left to stream, so
-replay is free. And the seq is a natural dedupe key when a replay and a live
-subscription overlap.
+---
 
-**Resilience lives in the runtime, not the planner.** `runtime.ts` owns
-per-attempt timeouts, bounded retries with exponential backoff and full jitter,
-a step cap, and cooperative cancellation through one `AbortSignal`. The planner
-just plans, executes, and narrates. Swapping the scripted planner for an LLM one
-touches no orchestration code.
+## Setup
 
-**A failed attempt is a first-class event, not a swallowed detail.** Every
-`tool.call` emits a matching `tool.result` with `ok: false` and the error when it
-fails, and the next attempt emits a new `tool.call` with an incremented
-`attempt`. A user watching a run sees the agent stumble and recover, which is
-most of what "trusting an agent" actually requires. A step that exhausts its
-retries fails the run rather than quietly producing a partial answer.
+```bash
+# 1. Create virtual environment
+python -m venv venv
+source venv/bin/activate   # Windows: venv\Scripts\activate
 
-**Backpressure is handled explicitly.** When `res.write()` signals a full socket
-buffer, the stream buffers; past a soft limit it coalesces consecutive
-`token.delta` frames for the same step (the text still arrives, in fewer
-frames); past a hard limit it closes the connection, and the client reconnects
-with `Last-Event-ID`. An unbounded per-client queue is how a few backgrounded
-browser tabs turn into an out-of-memory kill.
+# 2. Install dependencies
+pip install -r requirements.txt
 
-**The store interface is deliberately narrow** — `append`, `readFrom`,
-`subscribe`. Phase 1 backs it with a `Map`; moving to Redis Streams touches only
-`store.ts`.
+# 3. Set your Anthropic API key
+export ANTHROPIC_API_KEY="sk-ant-..."
+```
 
-## Known limitations
+---
 
-- In-memory store. Runs and transcripts are lost on restart, and it will not
-  survive more than one process.
-- The planner is scripted. No LLM, no real tools.
-- Idempotency keys never expire and are not scoped to a caller.
-- CORS is open by default.
-- No auth.
-- No human-in-the-loop approval gate yet.
+## Usage
 
-## Roadmap
+```bash
+# Pass topic as argument
+python main.py "impact of large language models on software engineering"
 
-1. ~~SSE transport, event contract, orchestration, cancellation, idempotency~~ ✅
-2. Real LLM planner behind the existing `Planner` interface — tool/function
-   calling, ReAct loop, token streaming from the model
-3. Redis-backed store: durable transcripts, resume across restarts, multi-process
-4. Human-in-the-loop — an approval gate that pauses a run at `awaiting_approval`
-   and resumes on `POST /runs/:id/approve`
-5. Next.js console: live timeline, collapsible tool args and results, cancel,
-   approve, replay a past run
-6. Eval harness — a task set with assertions over the event transcript, run in CI
+# Or interactive prompt
+python main.py
+```
 
-## Stack
+The report is printed to console and saved as `research_report.md`.
 
-Node 22, Express 5, TypeScript (strict), Zod. No framework for the agent loop —
-the orchestration is the point.
+---
+
+## Key LangGraph Concepts Demonstrated
+
+| Concept | Where |
+|---|---|
+| `TypedDict` state with reducers | `utils/state.py` |
+| `StateGraph` + `add_node` | `graphs/research_graph.py` |
+| `add_conditional_edges` | `graphs/research_graph.py` |
+| `MemorySaver` checkpointing | `graphs/research_graph.py` |
+| Agentic tool-use loop | `agents/researcher.py` |
+| Immutable state updates (return dicts) | All agent nodes |
+| Loop guard via iteration counter | `agents/supervisor.py` |
+
+---
+
+## Extending the Project
+
+- **Add a new agent**: define a function `my_agent(state) -> dict`, register with
+  `builder.add_node("my_agent", my_agent)`, add edges, update the supervisor prompt.
+- **Persistent storage**: swap `MemorySaver` for `SqliteSaver` or `PostgresSaver`.
+- **API endpoint**: wrap `run_research()` in a FastAPI route for a REST interface.
+- **Streaming to frontend**: use `graph.astream()` with `async for` in an async FastAPI handler.

@@ -8,6 +8,18 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -17,15 +29,47 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
-      - name: Smoke test the SSE stream
+
+      - name: Smoke test (in-memory store)
+        run: bash scripts/smoke.sh
+        env:
+          PORT: 4000
+
+      - name: Smoke test (Redis store)
+        run: bash scripts/smoke.sh
+        env:
+          PORT: 4001
+          REDIS_URL: redis://localhost:6379
+
+      - name: Durability — transcript survives a restart
+        env:
+          REDIS_URL: redis://localhost:6379
+          PORT: 4002
         run: |
-          node dist/server.js &
-          for i in $(seq 1 20); do curl -sf localhost:4000/health && break || sleep 1; done
-          ID=$(curl -sf -X POST localhost:4000/api/runs \
+          node dist/server.js & SERVER=$!
+          for i in $(seq 1 30); do curl -sf localhost:4002/health >/dev/null && break || sleep 1; done
+          ID=$(curl -sf -X POST localhost:4002/api/runs \
                 -H 'Content-Type: application/json' \
-                -d '{"goal":"ci smoke test"}' \
+                -d '{"goal":"durability check"}' \
                 | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).run.id))")
-          timeout 30 curl -sN "localhost:4000/api/runs/$ID/events" > stream.txt
-          grep -q 'event: run.completed' stream.txt
-          grep -q 'event: tool.call' stream.txt
-          echo "streamed $(grep -c '^event:' stream.txt) frames"
+          timeout 40 curl -sN "localhost:4002/api/runs/$ID/events" > first.txt
+          grep -q 'event: run.completed' first.txt
+          BEFORE=$(grep -c '^event:' first.txt)
+
+          # Kill the process that produced the transcript and start a new one.
+          kill $SERVER; wait $SERVER 2>/dev/null || true
+          node dist/server.js & SERVER=$!
+          for i in $(seq 1 30); do curl -sf localhost:4002/health >/dev/null && break || sleep 1; done
+
+          timeout 20 curl -sN "localhost:4002/api/runs/$ID/events" > second.txt
+          AFTER=$(grep -c '^event:' second.txt)
+          echo "before restart: $BEFORE frames, after restart: $AFTER frames"
+          [ "$BEFORE" = "$AFTER" ]
+
+          # And the resume cursor still works against the restored transcript.
+          timeout 20 curl -sN -H 'Last-Event-ID: 5' "localhost:4002/api/runs/$ID/events" > resumed.txt
+          RESUMED=$(grep -c '^event:' resumed.txt)
+          echo "resumed from seq 5: $RESUMED frames"
+          [ "$RESUMED" -lt "$AFTER" ]
+          grep -q 'event: run.completed' resumed.txt
+          kill $SERVER 2>/dev/null || true
