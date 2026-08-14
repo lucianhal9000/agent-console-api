@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Smoke test the SSE stream
+        run: |
+          node dist/server.js &
+          for i in $(seq 1 20); do curl -sf localhost:4000/health && break || sleep 1; done
+          ID=$(curl -sf -X POST localhost:4000/api/runs \
+                -H 'Content-Type: application/json' \
+                -d '{"goal":"ci smoke test"}' \
+                | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).run.id))")
+          timeout 30 curl -sN "localhost:4000/api/runs/$ID/events" > stream.txt
+          grep -q 'event: run.completed' stream.txt
+          grep -q 'event: tool.call' stream.txt
+          echo "streamed $(grep -c '^event:' stream.txt) frames"
