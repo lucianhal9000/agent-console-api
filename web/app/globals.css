@@ -1,0 +1,456 @@
+/*
+ * Palette reads off a plotter chart rather than a terminal: a deep blue
+ * graphite ground, warm paper text, and three semantic states. Colour here is
+ * data — amber means in flight, rust means an attempt failed, sage means it
+ * settled — so nothing decorative is allowed to use those three.
+ */
+:root {
+  --ink: #101822;
+  --ink-raised: #172130;
+  --ink-line: #23303f;
+  --bone: #e9e5db;
+  --dim: #7e8da0;
+  --amber: #e0a458;
+  --rust: #c2603f;
+  --sage: #7ea88b;
+
+  --sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --rail: 5.5rem;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--ink);
+  color: var(--bone);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+/* ------------------------------------------------------------------ shell */
+
+.shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.masthead {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--ink-line);
+}
+
+.wordmark {
+  font-family: var(--mono);
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.masthead p {
+  margin: 0;
+  color: var(--dim);
+  font-size: 0.85rem;
+  max-width: 46ch;
+}
+
+.masthead .spacer {
+  flex: 1;
+}
+
+.backend {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--dim);
+  letter-spacing: 0.06em;
+}
+
+.backend strong {
+  color: var(--bone);
+  font-weight: 500;
+}
+
+.body {
+  display: grid;
+  grid-template-columns: 15rem 1fr;
+  min-height: 0;
+}
+
+.sidebar {
+  border-right: 1px solid var(--ink-line);
+  padding: 1.25rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  overflow-y: auto;
+}
+
+.main {
+  padding: 1.5rem;
+  min-width: 0;
+}
+
+/* ------------------------------------------------------------------ labels */
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin: 0 0 0.75rem;
+}
+
+/* ------------------------------------------------------------------- form */
+
+.composer {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.75rem;
+}
+
+.composer input {
+  flex: 1;
+  min-width: 0;
+  background: var(--ink-raised);
+  border: 1px solid var(--ink-line);
+  border-radius: 2px;
+  padding: 0.65rem 0.8rem;
+  outline: none;
+}
+
+.composer input:focus-visible,
+button:focus-visible,
+.run-entry:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+.composer input::placeholder {
+  color: var(--dim);
+}
+
+button {
+  background: var(--bone);
+  color: var(--ink);
+  border: 0;
+  border-radius: 2px;
+  padding: 0.65rem 1.1rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+button.ghost {
+  background: transparent;
+  color: var(--bone);
+  border: 1px solid var(--ink-line);
+}
+
+/* --------------------------------------------------------------- run list */
+
+.run-entry {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-left: 2px solid transparent;
+  border-radius: 0;
+  padding: 0.45rem 0.6rem;
+  cursor: pointer;
+  color: var(--dim);
+}
+
+.run-entry:hover {
+  color: var(--bone);
+  background: var(--ink-raised);
+}
+
+.run-entry[aria-current='true'] {
+  border-left-color: var(--amber);
+  color: var(--bone);
+  background: var(--ink-raised);
+}
+
+.run-entry .goal {
+  display: block;
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-entry .meta {
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  opacity: 0.75;
+}
+
+/* ------------------------------------------------------- status semantics */
+
+.state-running {
+  color: var(--amber);
+}
+.state-failed,
+.state-cancelled {
+  color: var(--rust);
+}
+.state-succeeded {
+  color: var(--sage);
+}
+
+/* ------------------------------------------------------------ the rail */
+
+/*
+ * The signature element. Every event holds a fixed position on a numbered
+ * spine, because the sequence number is not decoration here — it is the resume
+ * cursor a reconnecting client sends back. Retried tool calls branch off the
+ * spine so a failure is visible as a shape, not just a colour.
+ */
+.timeline {
+  position: relative;
+  padding-left: var(--rail);
+}
+
+.timeline::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--rail) - 1px);
+  top: 0.35rem;
+  bottom: 0.35rem;
+  width: 1px;
+  background: var(--ink-line);
+}
+
+.row {
+  position: relative;
+  padding: 0.3rem 0 0.3rem 1.1rem;
+  animation: arrive 140ms ease-out;
+}
+
+.row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.95em;
+  width: 0.75rem;
+  height: 1px;
+  background: var(--ink-line);
+}
+
+.row .seq {
+  position: absolute;
+  left: calc(-1 * var(--rail));
+  top: 0.28rem;
+  width: calc(var(--rail) - 1.1rem);
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.row.retry {
+  margin-left: 1.4rem;
+}
+
+.row.retry::before {
+  width: 2.15rem;
+  left: -1.4rem;
+  background: var(--rust);
+  opacity: 0.5;
+}
+
+.row .label {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+}
+
+.row .detail {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--dim);
+  overflow-wrap: anywhere;
+}
+
+.row .detail .err {
+  color: var(--rust);
+}
+
+.row .detail .dur {
+  color: var(--sage);
+}
+
+@keyframes arrive {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* --------------------------------------------------------------- step block */
+
+.step {
+  margin-bottom: 1.5rem;
+}
+
+.step-head {
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+}
+
+.step-head .n {
+  font-family: var(--mono);
+  color: var(--dim);
+  margin-right: 0.6rem;
+  font-size: 0.8rem;
+}
+
+.narration {
+  margin: 0.4rem 0 0;
+  color: var(--dim);
+  font-size: 0.88rem;
+  max-width: 68ch;
+}
+
+.caret {
+  display: inline-block;
+  width: 0.45rem;
+  height: 1em;
+  margin-left: 0.15rem;
+  background: var(--amber);
+  vertical-align: text-bottom;
+  animation: blink 1s steps(2) infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* ------------------------------------------------------------------ cursor */
+
+.cursor-note {
+  margin-top: 1.5rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--ink-line);
+  border-left: 2px solid var(--amber);
+  background: var(--ink-raised);
+  font-family: var(--mono);
+  font-size: 0.73rem;
+  color: var(--dim);
+  max-width: 62ch;
+}
+
+.cursor-note b {
+  color: var(--bone);
+  font-weight: 500;
+}
+
+/* ------------------------------------------------------------------ answer */
+
+.answer {
+  margin-top: 1.5rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--ink-line);
+  border-left: 2px solid var(--sage);
+  background: var(--ink-raised);
+  max-width: 68ch;
+}
+
+.answer.bad {
+  border-left-color: var(--rust);
+}
+
+.answer p {
+  margin: 0.3rem 0 0;
+}
+
+/* ------------------------------------------------------------------- empty */
+
+.empty {
+  color: var(--dim);
+  max-width: 52ch;
+}
+
+.empty code {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--bone);
+}
+
+.error-banner {
+  border: 1px solid var(--rust);
+  border-radius: 2px;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 1rem;
+  font-size: 0.88rem;
+  color: var(--rust);
+}
+
+/* ------------------------------------------------------------- responsive */
+
+@media (max-width: 720px) {
+  :root {
+    --rail: 4rem;
+  }
+
+  .body {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    border-right: 0;
+    border-bottom: 1px solid var(--ink-line);
+    max-height: 11rem;
+  }
+
+  .main {
+    padding: 1rem;
+  }
+
+  .composer {
+    flex-wrap: wrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
