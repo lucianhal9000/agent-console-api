@@ -32,7 +32,7 @@ export function llmConfigFromEnv(): LlmConfig | null {
   return {
     apiKey,
     baseUrl: process.env.LLM_BASE_URL ?? 'https://api.groq.com/openai/v1',
-    model: process.env.LLM_MODEL ?? 'llama-3.3-70b-versatile',
+    model: process.env.LLM_MODEL ?? 'openai/gpt-oss-120b',
   };
 }
 
