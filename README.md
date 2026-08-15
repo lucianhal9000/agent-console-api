@@ -6,10 +6,11 @@ report progress over Server-Sent Events, so a client can render what the agent
 is doing *while* it does it — plan, per-step tool calls with their arguments,
 failed attempts and retries, streamed narration, and the final answer.
 
-The planner is currently scripted rather than LLM-backed. That is deliberate:
-the orchestration and the wire contract are the hard parts, and they are far
-easier to build and test when the event stream is deterministic and costs
-nothing to run. Swapping in an LLM planner touches one file.
+Two planners ship behind one interface. With no `LLM_API_KEY` set, a scripted
+planner runs a fixed four-step workflow — deterministic, free, and used by CI.
+Set a key and a real model plans the steps, chooses each tool's arguments, and
+streams its own narration. The runtime, the store, the routes, and the console
+are identical either way.
 
 ## The console
 
@@ -46,6 +47,30 @@ reports which backend is live.
 docker compose up -d redis          # or point REDIS_URL at a hosted instance
 REDIS_URL=redis://localhost:6379 npm run dev
 ```
+
+To run a real model, set `LLM_API_KEY` (plus `LLM_BASE_URL` and `LLM_MODEL` if
+you are not using Groq). `/health` reports which planner is live.
+
+## Tools
+
+Three real tools, described to the model as function schemas:
+
+| Tool | What it does |
+| --- | --- |
+| `calculator` | Evaluates arithmetic via a hand-written recursive-descent parser. |
+| `http_get` | Fetches a public HTTPS page and returns its text, truncated. |
+| `current_time` | The current date and time in a given IANA zone. |
+
+Two of those needed a security decision rather than a feature decision, and
+both are the kind that only shows up once a model is choosing the inputs.
+
+The calculator does not use `eval` or `new Function`. Tool arguments are
+model-generated, which makes them untrusted input, and handing untrusted input
+to an evaluator turns a calculator into remote code execution.
+
+`http_get` is an SSRF primitive unless it is fenced, because the model picks the
+URL. It accepts HTTPS only and refuses loopback, link-local, and private ranges
+— otherwise a prompt could steer it at cloud metadata or an internal service.
 
 ```bash
 # start a run
@@ -87,8 +112,31 @@ subscription overlap.
 **Resilience lives in the runtime, not the planner.** `runtime.ts` owns
 per-attempt timeouts, bounded retries with exponential backoff and full jitter,
 a step cap, and cooperative cancellation through one `AbortSignal`. The planner
-just plans, executes, and narrates. Swapping the scripted planner for an LLM one
-touches no orchestration code.
+just plans, executes, and narrates. Adding the LLM planner touched no
+orchestration code — the claim was made before the planner existed, and it held.
+
+**Arguments are resolved late.** A planner that fixes every tool argument up
+front cannot let step 3's query depend on step 2's answer, which is most of what
+makes a multi-step agent worth having. So the plan names tools, and an optional
+`prepare` hook resolves each step's arguments once earlier results are known.
+Retries reuse the resolved step rather than re-deriving it: a transient 503 is
+not a reason to change what you asked for.
+
+**Not every failure deserves a retry.** A 404, a malformed expression, or an
+unknown time zone will fail identically on every attempt, so retrying them
+turns an instant failure into a slow one and buries the cause under duplicates.
+Tools raise `PermanentToolError` for those; everything else is treated as
+transient by default, so a tool has to opt out deliberately. The classification
+travels to the client on the `tool.result` event, and the console says *not
+retried* rather than leaving a permanent error looking like flakiness.
+
+This one came out of watching a real run: the model invented a URL, got a 404,
+and the runtime dutifully retried it three times with backoff.
+
+**Model output is validated at the boundary.** A plan naming a tool that does
+not exist fails immediately with a clear message rather than three steps later.
+Tool arguments are parsed against the same Zod schema whether they came from a
+model or a person.
 
 **A failed attempt is a first-class event, not a swallowed detail.** Every
 `tool.call` emits a matching `tool.result` with `ok: false` and the error when it
@@ -124,7 +172,15 @@ cancelling a run on instance A through instance B.
 
 ## Known limitations
 
-- The planner is scripted. No LLM, no real tools.
+- The LLM planner is plan-and-execute, not ReAct: it cannot add or drop a step
+  once the plan is fixed, only ground each step's arguments in earlier results.
+- Tool choice is only as good as the tool descriptions. A model will still
+  sometimes reach for `http_get` at an invented URL when a specific tool covers
+  the job; the prompt and the descriptions discourage it but cannot prevent it,
+  which is part of why `http_get` is fenced.
+- `http_get` blocks private ranges by hostname, which does not stop a public
+  hostname that resolves to a private address. Proper protection needs
+  resolution-time checking.
 - `readFrom` scans the whole stream and filters by seq rather than seeking to a
   position. Fine at the 5k-event cap, wrong at a much larger one.
 - Idempotency keys are global rather than scoped to a caller, so two callers
@@ -140,8 +196,8 @@ cancelling a run on instance A through instance B.
 1. ~~SSE transport, event contract, orchestration, cancellation, idempotency~~ ✅
 2. ~~Redis-backed store: durable transcripts, resume across restarts,
    cross-process cancellation~~ ✅
-3. Real LLM planner behind the existing `Planner` interface — tool/function
-   calling, ReAct loop, token streaming from the model
+3. ~~Real LLM planner behind the existing `Planner` interface — tool calling,
+   late-resolved arguments, token streaming from the model~~ ✅
 4. Human-in-the-loop — an approval gate that pauses a run at `awaiting_approval`
    and resumes on `POST /runs/:id/approve`
 5. Next.js console: live timeline, collapsible tool args and results, cancel,
@@ -153,6 +209,8 @@ cancelling a run on instance A through instance B.
 Node 22, Express 5, TypeScript (strict), Zod, Redis (Streams + pub/sub) via
 ioredis. No framework for the agent loop — the orchestration is the point.
 
-CI runs the full smoke suite against both store backends, plus a durability
-check that kills the server mid-life and asserts the transcript replays
-identically from a fresh process.
+CI runs the full smoke suite against both store backends, a durability check
+that kills the server mid-life and asserts the transcript replays identically
+from a fresh process, and the LLM planner path against a mock model server
+(`scripts/mock-llm.mjs`) — so JSON-mode plan parsing, tool-call arguments, and
+SSE delta parsing are all covered with no API key and no network call.

@@ -1,5 +1,5 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import type { Planner, PlannedStep } from './runtime.js';
+import type { Planner, PlannedStep, StepContext, StepResult } from './runtime.js';
 
 /**
  * Phase 1 planner. No LLM, no API key — it produces a realistic event stream so
@@ -36,7 +36,7 @@ export class ScriptedPlanner implements Planner {
     ];
   }
 
-  async execute(step: PlannedStep, signal: AbortSignal): Promise<unknown> {
+  async execute(step: PlannedStep, _context: StepContext, signal: AbortSignal): Promise<unknown> {
     await delay(400 + Math.random() * 600, undefined, { signal });
 
     if (step.tool === 'flaky_calculator') {
@@ -63,6 +63,7 @@ export class ScriptedPlanner implements Planner {
   async *narrate(
     step: PlannedStep,
     _result: unknown,
+    _context: StepContext,
     signal: AbortSignal,
   ): AsyncIterable<string> {
     const text = `Completed ${step.tool}. ${step.description} is done and the output looks consistent with the goal. `;
@@ -72,11 +73,7 @@ export class ScriptedPlanner implements Planner {
     }
   }
 
-  async summarize(
-    goal: string,
-    results: { step: PlannedStep; result: unknown }[],
-    signal: AbortSignal,
-  ): Promise<string> {
+  async summarize(goal: string, results: StepResult[], signal: AbortSignal): Promise<string> {
     await delay(300, undefined, { signal });
     return `Ran ${results.length} steps for "${goal}" and reached a consistent result.`;
   }

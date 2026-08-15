@@ -26,7 +26,13 @@ function Attempt({ attempt }: { attempt: ToolAttempt }) {
           <span className="seq" />
           <div className="detail">
             {failed ? (
-              <span className="err">failed · {attempt.error}</span>
+              <span className="err">
+                failed · {attempt.error}
+                {/* Saying why a failure stopped is as useful as saying it
+                    failed: a permanent error that was retried three times looks
+                    like flakiness when it isn't. */}
+                {attempt.retryable === false ? ' · not retried' : ''}
+              </span>
             ) : (
               <>
                 <span className="dur">{formatDuration(attempt.durationMs)}</span>{' '}
@@ -47,6 +53,7 @@ function Attempt({ attempt }: { attempt: ToolAttempt }) {
 
 function Step({ step, live }: { step: StepState; live: boolean }) {
   const failures = step.attempts.filter((a) => a.ok === false).length;
+  const permanent = step.attempts.some((a) => a.retryable === false);
 
   return (
     <section className="step">
@@ -58,7 +65,9 @@ function Step({ step, live }: { step: StepState; live: boolean }) {
         </div>
         {failures > 0 ? (
           <div className="detail err">
-            recovered after {failures} failed {failures === 1 ? 'attempt' : 'attempts'}
+            {permanent
+              ? 'failed permanently — no retry would have helped'
+              : `recovered after ${failures} failed ${failures === 1 ? 'attempt' : 'attempts'}`}
           </div>
         ) : null}
       </div>

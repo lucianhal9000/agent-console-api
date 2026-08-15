@@ -38,6 +38,7 @@ export type AgentEvent = Base &
         ok: boolean;
         result?: unknown;
         error?: string;
+        retryable?: boolean;
         durationMs: number;
       }
     | { type: 'step.completed'; index: number; summary: string }
@@ -71,6 +72,7 @@ export interface ToolAttempt {
   ok?: boolean;
   result?: unknown;
   error?: string;
+  retryable?: boolean;
   durationMs?: number;
 }
 
@@ -184,6 +186,7 @@ function reduce(state: RunState, event: AgentEvent): RunState {
                   ok: event.ok,
                   result: event.result,
                   error: event.error,
+                  retryable: event.retryable,
                   durationMs: event.durationMs,
                 }
               : a,

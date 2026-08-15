@@ -1,7 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
-import { ScriptedPlanner } from '../agent/scripted-planner.js';
-import { runAgent } from '../agent/runtime.js';
+import { runAgent, type Planner } from '../agent/runtime.js';
 import { isTerminal, LocalRunRegistry, type RunStore } from './store.js';
 import { SseStream, parseLastEventId } from './sse.js';
 
@@ -18,7 +17,11 @@ function routeParam(req: Request, name: string): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
-export function createRunsRouter(store: RunStore): Router {
+/**
+ * `newPlanner` is a factory rather than an instance: each run gets its own, so
+ * per-run planner state can never leak between concurrent runs.
+ */
+export function createRunsRouter(store: RunStore, newPlanner: () => Planner): Router {
   const router = Router();
   const registry = new LocalRunRegistry();
 
@@ -50,7 +53,7 @@ export function createRunsRouter(store: RunStore): Router {
     res.status(202).json({ run, events: `/api/runs/${run.id}/events` });
 
     // Fire-and-forget: the response is already sent, progress arrives over SSE.
-    void runAgent(run.goal, new ScriptedPlanner(), signal, (payload) => {
+    void runAgent(run.goal, newPlanner(), signal, (payload) => {
       void store.append(run.id, payload);
     }).finally(() => registry.release(run.id));
   });

@@ -41,6 +41,14 @@ jobs:
           PORT: 4001
           REDIS_URL: redis://localhost:6379
 
+      - name: Smoke test (LLM planner against a mock model)
+        run: bash scripts/smoke-llm.sh
+        env:
+          PORT: 4020
+          LLM_API_KEY: mock
+          LLM_MODEL: mock-model
+          LLM_BASE_URL: http://localhost:5555/v1
+
       - name: Durability — transcript survives a restart
         env:
           REDIS_URL: redis://localhost:6379

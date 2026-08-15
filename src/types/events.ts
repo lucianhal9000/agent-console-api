@@ -37,6 +37,8 @@ export type AgentEventPayload =
       ok: boolean;
       result?: unknown;
       error?: string;
+      /** False when the error is permanent and no retry was attempted. */
+      retryable?: boolean;
       durationMs: number;
     }
   | { type: 'step.completed'; index: number; summary: string }
