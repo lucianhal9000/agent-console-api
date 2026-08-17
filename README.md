@@ -1,12 +1,20 @@
 # agent-console
 
+\*\*Live demo:\*\* https://agent-console-api.vercel.app · \*\*API:\*\* https://agent-console-api.onrender.com
+
+
+
+Both run on free tiers. If the backend has been idle it may take up to a
+
+minute to wake on the first request.
+
 A streaming agent runtime in Node/TypeScript, plus a console that makes a run
 legible while it happens. Agents plan, call tools, and
 report progress over Server-Sent Events, so a client can render what the agent
 is doing *while* it does it — plan, per-step tool calls with their arguments,
 failed attempts and retries, streamed narration, and the final answer.
 
-Two planners ship behind one interface. With no `LLM_API_KEY` set, a scripted
+Two planners ship behind one interface. With no `LLM\\\_API\\\_KEY` set, a scripted
 planner runs a fixed four-step workflow — deterministic, free, and used by CI.
 Set a key and a real model plans the steps, chooses each tool's arguments, and
 streams its own narration. The runtime, the store, the routes, and the console
@@ -19,7 +27,7 @@ every tool call with its arguments, failed attempts alongside the retry that
 recovered, and narration streaming in token by token.
 
 ```bash
-cd web && npm install && npm run dev     # http://localhost:3000
+cd web \\\&\\\& npm install \\\&\\\& npm run dev     # http://localhost:3000
 ```
 
 It proxies `/api` to the backend, so there is one origin and no CORS preflight
@@ -39,27 +47,27 @@ npm install
 npm run dev            # http://localhost:4000
 ```
 
-With no `REDIS_URL` set the app runs entirely in memory — no external
-dependency. Set `REDIS_URL` and it switches to the durable store; `/health`
+With no `REDIS\\\_URL` set the app runs entirely in memory — no external
+dependency. Set `REDIS\\\_URL` and it switches to the durable store; `/health`
 reports which backend is live.
 
 ```bash
-docker compose up -d redis          # or point REDIS_URL at a hosted instance
-REDIS_URL=redis://localhost:6379 npm run dev
+docker compose up -d redis          # or point REDIS\\\_URL at a hosted instance
+REDIS\\\_URL=redis://localhost:6379 npm run dev
 ```
 
-To run a real model, set `LLM_API_KEY` (plus `LLM_BASE_URL` and `LLM_MODEL` if
+To run a real model, set `LLM\\\_API\\\_KEY` (plus `LLM\\\_BASE\\\_URL` and `LLM\\\_MODEL` if
 you are not using Groq). `/health` reports which planner is live.
 
 ## Tools
 
 Three real tools, described to the model as function schemas:
 
-| Tool | What it does |
-| --- | --- |
-| `calculator` | Evaluates arithmetic via a hand-written recursive-descent parser. |
-| `http_get` | Fetches a public HTTPS page and returns its text, truncated. |
-| `current_time` | The current date and time in a given IANA zone. |
+|Tool|What it does|
+|-|-|
+|`calculator`|Evaluates arithmetic via a hand-written recursive-descent parser.|
+|`http\\\_get`|Fetches a public HTTPS page and returns its text, truncated.|
+|`current\\\_time`|The current date and time in a given IANA zone.|
 
 Two of those needed a security decision rather than a feature decision, and
 both are the kind that only shows up once a model is choosing the inputs.
@@ -68,15 +76,15 @@ The calculator does not use `eval` or `new Function`. Tool arguments are
 model-generated, which makes them untrusted input, and handing untrusted input
 to an evaluator turns a calculator into remote code execution.
 
-`http_get` is an SSRF primitive unless it is fenced, because the model picks the
+`http\\\_get` is an SSRF primitive unless it is fenced, because the model picks the
 URL. It accepts HTTPS only and refuses loopback, link-local, and private ranges
 — otherwise a prompt could steer it at cloud metadata or an internal service.
 
 ```bash
 # start a run
-curl -X POST localhost:4000/api/runs \
-  -H 'Content-Type: application/json' \
-  -H 'Idempotency-Key: my-key-1' \
+curl -X POST localhost:4000/api/runs \\\\
+  -H 'Content-Type: application/json' \\\\
+  -H 'Idempotency-Key: my-key-1' \\\\
   -d '{"goal":"compare two vendors on price"}'
 
 # watch it
@@ -91,14 +99,14 @@ curl -X POST localhost:4000/api/runs/<id>/cancel
 
 ## API
 
-| Method | Path | Notes |
-| --- | --- | --- |
-| `POST` | `/api/runs` | `202` with the run. Honours `Idempotency-Key`; a repeat returns `200` with the original run and `idempotentReplay: true`. |
-| `GET` | `/api/runs` | All runs, newest first. |
-| `GET` | `/api/runs/:id` | One run. |
-| `GET` | `/api/runs/:id/events` | SSE. Accepts `Last-Event-ID` (or `?lastEventId=`). |
-| `POST` | `/api/runs/:id/cancel` | `202` accepted; `409` if already terminal. |
-| `GET` | `/health` | Liveness, plus which store backend is active. |
+|Method|Path|Notes|
+|-|-|-|
+|`POST`|`/api/runs`|`202` with the run. Honours `Idempotency-Key`; a repeat returns `200` with the original run and `idempotentReplay: true`.|
+|`GET`|`/api/runs`|All runs, newest first.|
+|`GET`|`/api/runs/:id`|One run.|
+|`GET`|`/api/runs/:id/events`|SSE. Accepts `Last-Event-ID` (or `?lastEventId=`).|
+|`POST`|`/api/runs/:id/cancel`|`202` accepted; `409` if already terminal.|
+|`GET`|`/health`|Liveness, plus which store backend is active.|
 
 ## Design decisions
 
@@ -172,36 +180,36 @@ cancelling a run on instance A through instance B.
 
 ## Known limitations
 
-- The LLM planner is plan-and-execute, not ReAct: it cannot add or drop a step
-  once the plan is fixed, only ground each step's arguments in earlier results.
-- Tool choice is only as good as the tool descriptions. A model will still
-  sometimes reach for `http_get` at an invented URL when a specific tool covers
-  the job; the prompt and the descriptions discourage it but cannot prevent it,
-  which is part of why `http_get` is fenced.
-- `http_get` blocks private ranges by hostname, which does not stop a public
-  hostname that resolves to a private address. Proper protection needs
-  resolution-time checking.
-- `readFrom` scans the whole stream and filters by seq rather than seeking to a
-  position. Fine at the 5k-event cap, wrong at a much larger one.
-- Idempotency keys are global rather than scoped to a caller, so two callers
-  could collide on the same key.
-- The in-memory store is still single-process; it is the default, so running
-  more than one instance without `REDIS_URL` will not behave as expected.
-- CORS is open by default.
-- No auth.
-- No human-in-the-loop approval gate yet.
+* The LLM planner is plan-and-execute, not ReAct: it cannot add or drop a step
+once the plan is fixed, only ground each step's arguments in earlier results.
+* Tool choice is only as good as the tool descriptions. A model will still
+sometimes reach for `http\\\_get` at an invented URL when a specific tool covers
+the job; the prompt and the descriptions discourage it but cannot prevent it,
+which is part of why `http\\\_get` is fenced.
+* `http\\\_get` blocks private ranges by hostname, which does not stop a public
+hostname that resolves to a private address. Proper protection needs
+resolution-time checking.
+* `readFrom` scans the whole stream and filters by seq rather than seeking to a
+position. Fine at the 5k-event cap, wrong at a much larger one.
+* Idempotency keys are global rather than scoped to a caller, so two callers
+could collide on the same key.
+* The in-memory store is still single-process; it is the default, so running
+more than one instance without `REDIS\\\_URL` will not behave as expected.
+* CORS is open by default.
+* No auth.
+* No human-in-the-loop approval gate yet.
 
 ## Roadmap
 
 1. ~~SSE transport, event contract, orchestration, cancellation, idempotency~~ ✅
 2. ~~Redis-backed store: durable transcripts, resume across restarts,
-   cross-process cancellation~~ ✅
+cross-process cancellation~~ ✅
 3. ~~Real LLM planner behind the existing `Planner` interface — tool calling,
-   late-resolved arguments, token streaming from the model~~ ✅
-4. Human-in-the-loop — an approval gate that pauses a run at `awaiting_approval`
-   and resumes on `POST /runs/:id/approve`
+late-resolved arguments, token streaming from the model~~ ✅
+4. Human-in-the-loop — an approval gate that pauses a run at `awaiting\\\_approval`
+and resumes on `POST /runs/:id/approve`
 5. Next.js console: live timeline, collapsible tool args and results, cancel,
-   approve, replay a past run
+approve, replay a past run
 6. Eval harness — a task set with assertions over the event transcript, run in CI
 
 ## Stack
@@ -214,3 +222,4 @@ that kills the server mid-life and asserts the transcript replays identically
 from a fresh process, and the LLM planner path against a mock model server
 (`scripts/mock-llm.mjs`) — so JSON-mode plan parsing, tool-call arguments, and
 SSE delta parsing are all covered with no API key and no network call.
+
