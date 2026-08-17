@@ -126,16 +126,21 @@ export default function Console() {
 
           {!runId ? (
             <div className="empty">
-              <p className="eyebrow">Nothing selected</p>
+              <p className="eyebrow">Start here</p>
               <p>
-                Start a run above, or pick one from the list to replay it. Replayed runs render from
-                the stored event stream, so they look exactly like they did live.
+                Give the agent a goal above — try <em>What time is it in London and Berlin?</em> —
+                and watch it plan, choose its tools, and narrate the work as it goes. Or pick a run
+                from the sidebar to replay it from the stored event stream, exactly as it happened
+                live.
               </p>
               <p>
-                The agent plans its own steps, calls real tools, and streams every
-                attempt as it happens. Failed calls stay visible next to the retry
-                that recovered them. Close the tab mid-run and reopen it — the
-                stream resumes where it left off.
+                Failed calls stay on screen next to the retry that recovered them, and errors that
+                won&apos;t be retried are labelled as such. Close the tab mid-run and reopen it: the
+                stream resumes where it stopped.
+              </p>
+              <p>
+                The backend sleeps when idle, so the first run after a quiet spell takes about a
+                minute to start.
               </p>
             </div>
           ) : (
