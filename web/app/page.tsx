@@ -132,8 +132,10 @@ export default function Console() {
                 the stored event stream, so they look exactly like they did live.
               </p>
               <p>
-                The demo agent plans four steps and calls a deliberately unreliable tool on the
-                third, so you can watch it fail twice and recover.
+                The agent plans its own steps, calls real tools, and streams every
+                attempt as it happens. Failed calls stay visible next to the retry
+                that recovered them. Close the tab mid-run and reopen it — the
+                stream resumes where it left off.
               </p>
             </div>
           ) : (
