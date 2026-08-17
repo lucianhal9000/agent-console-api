@@ -192,7 +192,7 @@ Build command for the API: `npm ci --include=dev && npm run build` — TypeScrip
 - `readFrom` scans the whole stream and filters by seq rather than seeking to a position. Fine at the 5k-event cap, wrong at a much larger one.
 - Idempotency keys are global rather than scoped to a caller, so two callers could collide on the same key.
 - The in-memory store is single-process; it is the default, so running more than one instance without `REDIS_URL` will not behave as expected.
-- CORS is open by default.
+- CORS defaults to `*`; the deployment sets `CORS_ORIGIN` to the console origin.
 - No auth.
 - No human-in-the-loop approval gate yet.
 
